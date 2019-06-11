@@ -79,9 +79,12 @@ class MapViewController: UIViewController {
     private func setPin(at point: NMAGeoCoordinates, icon: UIImage?){
         mapView.remove(objects: displayedObjects)
         displayedObjects.removeAll()
+
+        guard let image: UIImage = icon else { return }
+
         let marker = NMAMapMarker()
         marker.coordinates = point
-        marker.icon = icon
+        marker.icon = image.adjustForMapMarker()
         marker.zIndex = 100
 
         if marker.icon != nil {
@@ -112,4 +115,112 @@ class MapViewController: UIViewController {
         setPin(at: randomLocation(), icon: button.image(for: .normal))
     }
 
+}
+
+
+extension UIImage
+{
+    /**
+     User defined max size for marker image.
+     - note: Large images cover more visible map area.
+     */
+    struct maxImageSize {
+        static let width: CGFloat = 30
+        static let height: CGFloat = 30
+    }
+
+    /**
+     This method is a simple example of runtime image adjustment (image size and color scheme)
+     for mapMarker.
+     - important: THIS IS NOT OPTIMAL WAY. For greater performance the image resources should be already adjusted before the execution.
+     */
+    func adjustForMapMarker() -> UIImage? {
+        // Resize the image to render in map
+        var resizedImage: UIImage?
+        if self.size.width > maxImageSize.width || self.size.height > maxImageSize.height {
+            // aspect ratio is not saved
+            resizedImage = self.resizeImage(to: CGSize(width: maxImageSize.width,
+                                                        height: maxImageSize.height),
+                                             scale: UIScreen.main.scale)
+        } else {
+            resizedImage = self
+        }
+
+        // Convert monochrome colorspace to RGB
+        var adjustedImage: UIImage? = resizedImage
+        if let cs = resizedImage?.cgImage?.colorSpace, cs.model == CGColorSpaceModel.monochrome {
+            adjustedImage = resizedImage?.asRGBImage()
+        }
+
+        return adjustedImage
+    }
+
+
+    /**
+     Creates a new image with device dependent RGB color space from current monochrome image.
+     - important: Only monochrome image with valid bpc and bpp can be converted.
+
+     - returns: new UIImage with device dependent RGB color space, which is based on current image
+     OR nil otherwise.
+     */
+    private func asRGBImage() -> UIImage? {
+        guard let cgImage =  self.cgImage else {
+            return nil
+        }
+
+        guard let cs = cgImage.colorSpace, cs.model == CGColorSpaceModel.monochrome else {
+            return nil
+        }
+
+        // explicitly set RGB color space
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+
+        let bitsPerComponent = cgImage.bitsPerComponent
+        let bytesPerRow = cgImage.bytesPerRow
+
+        let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue
+            | CGBitmapInfo.byteOrder32Little.rawValue
+
+        if let context = CGContext(data: nil,
+                                   width: Int(size.width),
+                                   height: Int(size.height),
+                                   bitsPerComponent: bitsPerComponent,
+                                   bytesPerRow: bytesPerRow,
+                                   space: colorSpace,
+                                   bitmapInfo: bitmapInfo)
+        {
+            context.interpolationQuality = .high
+
+            context.draw(cgImage, in: CGRect(origin: CGPoint.zero, size: size))
+            if let newCGImage = context.makeImage() {
+                let newImage = UIImage(cgImage: newCGImage)
+                return newImage
+            }
+        }
+        return nil
+    }
+
+    /**
+     Creates a new resized image from current image.
+     New image has defined size and screen scale.
+     - important: New image doesn't keep aspect ratio of current image.
+
+     - parameters:
+        - newSize: The size of new image.
+        - scale: The device screen scale factor applied on bitmap.
+     - returns: new UIImage with given size and scale, which is based on current image
+     OR nil otherwise.
+     */
+    private func resizeImage(to newSize: CGSize, scale: CGFloat) -> UIImage? {
+
+        UIGraphicsBeginImageContextWithOptions(newSize, false, scale);
+
+        let rect = CGRect(origin: CGPoint.zero, size: newSize)
+        draw(in: rect)
+        let scaledImage = UIGraphicsGetImageFromCurrentImageContext()
+
+        UIGraphicsEndImageContext()
+
+        return scaledImage
+    }
 }
